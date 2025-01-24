@@ -60,7 +60,7 @@ pulsePerLiter = 155
 pulsePerMiliLiter = pulsePerLiter/1000
 
 cold = False
-product = 0
+product = 300
 idProduct = 0
 productPrice = 0
 pulse = 0
@@ -205,6 +205,14 @@ def speak(name):
         playsound(filename)
     except Exception as e:
         print("error play sound file", e)
+def check_internet():
+    url = "https://www.google.com"
+    timeout = 100
+    try:
+        requests.get(url, timeout=timeout)
+        return True
+    except (requests.ConnectionError, requests.Timeout):
+        return False
 
 def machine_ready():
     global main_switch
@@ -398,8 +406,10 @@ class ScreenStandby(MDScreen):
                 # program for displaying IO condition
         if (main_switch):
             if (self.screen_manager.current == 'screen_standby'):
-                self.screen_manager.current = 'screen_choose_product'
-                Clock.unschedule(self.regular_check)
+                if(check_internet()):
+                    self.screen_manager.current = 'screen_choose_product'
+                    machine_ready()
+                    Clock.unschedule(self.regular_check)
 
         else:
             # print("machine is standby")
@@ -737,7 +747,7 @@ class ScreenOperate(MDScreen):
     def regular_check(self, *args):
         # global pulse, product, pulsePerMiliLiter, in_sensor_proximity_atas, in_sensor_proximity_bawah, out_pump_cold, out_pump_normal, out_servo, servo_open
         # global fill_state, fill_previous, count_time_initiate
-        global holdingRegisterMicro,readHoldingRegisterMicro,fill_state
+        global holdingRegisterMicro,readHoldingRegisterMicro,fill_state,product
         
         if (fill_state):
             # count_time_initiate = DELAY_BEFORE_AUTO_DOWN
@@ -747,7 +757,7 @@ class ScreenOperate(MDScreen):
              #   if (in_sensor_proximity_atas.value or in_sensor_proximity_bawah.value):
                 if (True): 
                     if readHoldingRegisterMicro[0] != 3 and successCommunication is not None:
-                        
+                        holdingRegisterMicro[0] = product
                         holdingRegisterMicro[10] = 2 if (cold) else holdingRegisterMicro[10] = 1
                
 
