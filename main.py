@@ -79,6 +79,11 @@ fill_state = False
 fill_previous = False
 count_time_initiate = 0
 
+holdingRegisterMicro = [0,0,0,0,0,0,0,0,0,0,0,0]
+readHoldingRegisterMicro = [0,0]
+readCoilMicro = [0,0,0,0,0]
+lastReadHolding = 0
+successCommunication = None
 if(not DEBUG):
     # # input declaration 
     # in_machine_ready = DigitalInputDevice(24, pull_up=None, active_state=True, bounce_time=4)
@@ -140,6 +145,57 @@ if(not DEBUG):
     # normalTank.serial.timeout = 0.5
     # normalTank.mode = MODE
     # normalTank.clear_buffers_before_each_transaction = True
+def read_registers(starting_address, num_registers):
+    global readHoldingRegisterMicro,holdingRegisterMicro
+    try:
+        # Membaca register
+        registers = microcontroller.read_registers(starting_address, num_registers, functioncode=3)
+        print(f"Berhasil membaca register dari address {starting_address}: {registers}")
+        readHoldingRegisterMicro = registers
+        if readHoldingRegisterMicro[0] == lastReadHolding:
+            lastReadHolding = readHoldingRegisterMicro[0]
+            # if lastReadHolding == 3:
+            #     holdingRegisterMicro[10] = 0
+            return registers
+        else:
+            lastReadHolding = readHoldingRegisterMicro[0]
+            return None
+    except Exception as e:
+        print(f"Error membaca register dari address {starting_address}: {e}")
+        return None
+
+def read_coils_to_array(starting_address, num_coils):
+    global readCoilMicro
+    try:
+        # Membaca status coil
+        coils = microcontroller.read_bits(starting_address, num_coils, functioncode=1)  # Function code 1: Read Coils
+        print(f"Berhasil membaca status coil dari address {starting_address}: {coils}")
+        readCoilMicro = coils
+        
+    except Exception as e:
+        print(f"Error membaca status coil dari address {starting_address}: {e}")
+        
+    
+# Fungsi untuk menulis ke beberapa register
+def write_multiple_registers(starting_address, values):
+    try:
+        # Menulis ke beberapa register
+        microcontroller.write_registers(starting_address, values)
+        print(f"Berhasil menulis nilai {values} ke register mulai dari address {starting_address}")
+    except Exception as e:
+        print(f"Error menulis nilai {values} ke register mulai dari address {starting_address}: {e}")
+
+def _logicCommunicationModbusMicro():
+    global holdingRegisterMicro,successCommunication
+    successCommunication = read_registers(10,2)
+    read_coils_to_array(0, 5)
+    # Langkah 2: Tulis ke register jika pembacaan berhasil
+    if successCommunication is not None:
+        # Data yang ingin ditulis
+        print("Pembacaan berhasil. Menulis data ke beberapa register...")
+        write_multiple_registers(0, holdingRegisterMicro)
+    else:
+        print("Pembacaan gagal. Tidak menulis ke register.")
 
 def speak(name):
     try:
@@ -179,7 +235,7 @@ def count_pulse():
 
 # if (not DEBUG) : in_machine_ready.when_activated = machine_ready
 # if (not DEBUG) : in_sensor_flow.when_activated = count_pulse 
-
+Clock.schedule_interval(_logicCommunicationModbusMicro, .1)
 class ScreenSplash(MDScreen):
     screen_manager = ObjectProperty(None)
     app_window = ObjectProperty(None)
@@ -215,6 +271,7 @@ class ScreenSplash(MDScreen):
         # global out_pump_main, out_valve_cold, out_valve_normal, in_machine_ready
         global flag_maintenance
         global main_switch
+        global readHoldingRegisterMicro
 
         if(not DEBUG) :
         #     try:
@@ -261,10 +318,10 @@ class ScreenSplash(MDScreen):
         #         time.sleep(.1)
         #     except Exception as e:
         #         print(f'Error reading level sensor normal tank: {e}')
+            main_switch = True
             try:
-                read = microcontroller.read_register(0x0101,0,3,False)
-                # levelMainTank = round(100 - (read * 100 / maxMainTank),2)
-                time.sleep(.1)
+                
+                levelMainTank = round(100 - (readHoldingRegisterMicro[1] * 100 / maxMainTank),2)
             except Exception as e:
                 print(f'Error reading level sensor main tank: {e}')
         else:
@@ -332,7 +389,7 @@ class ScreenStandby(MDScreen):
 
         if(not DEBUG) :
             try:
-                main_switch = in_machine_ready.value        
+                main_switch = True  
             except Exception as e:                    
                 print(f'Error standby check:{e}')
         else:
@@ -628,32 +685,33 @@ class ScreenOperate(MDScreen):
         Clock.schedule_interval(self.regular_check, .1)
 
     def act_up(self):
-        global linear_motor, out_motor_linear
+        global linear_motor,holdingRegisterMicro
 
         self.ids.bt_up.md_bg_color = "#3C9999"
-        if (not DEBUG) : out_motor_linear.forward()
+        if (not DEBUG) : holdingRegisterMicro[9] = 1
         # toast("tumbler base is going up")
 
     def act_down(self):
-        global linear_motor, out_motor_linear
+        global linear_motor,holdingRegisterMicro
 
         self.ids.bt_down.md_bg_color = "#3C9999"
-        if (not DEBUG) : out_motor_linear.backward()
+        if (not DEBUG) : holdingRegisterMicro[9] = 2
         # toast("tumbler base is going down")
 
     def act_stop(self):
-        global linear_motor, out_motor_linear
+        global linear_motor,holdingRegisterMicro
 
         self.ids.bt_up.md_bg_color = "#09343C"
         self.ids.bt_down.md_bg_color = "#09343C"
-        if (not DEBUG) : out_motor_linear.stop()
+        if (not DEBUG) : holdingRegisterMicro[9] = 0
 
     def fill_start(self):
-        global pulse, fill_state
+        global holdingRegisterMicro,readHoldingRegisterMicro
 
         if (not DEBUG and not fill_state) :
             pulse = 0 
             fill_state = True
+            
 
         print("fill start")
         toast("water filling is started")
@@ -662,16 +720,14 @@ class ScreenOperate(MDScreen):
     def fill_stop(self):
         global out_pump_cold, out_pump_normal, servo_open, fill_state
         global levelMainTank
-
+        global holdingRegisterMicro,readHoldingRegisterMicro
         servo_open = False
         fill_state = False
 
         if (not DEBUG) :
-            out_pump_cold.off()
-            out_pump_normal.off()
-            time.sleep(.5)
-            out_servo.angle = 0
-            levelMainTank -= 2
+
+            # if readHoldingRegisterMicro[0] != 3 and successCommunication is not None:
+            holdingRegisterMicro[10] = 0
 
         print("fill stop")
         toast("thank you for decreasing plastic bottle trash by buying our product")
@@ -679,42 +735,36 @@ class ScreenOperate(MDScreen):
         self.screen_manager.current = 'screen_choose_product'
 
     def regular_check(self, *args):
-        global pulse, product, pulsePerMiliLiter, in_sensor_proximity_atas, in_sensor_proximity_bawah, out_pump_cold, out_pump_normal, out_servo, servo_open
-        global fill_state, fill_previous, count_time_initiate
-
+        # global pulse, product, pulsePerMiliLiter, in_sensor_proximity_atas, in_sensor_proximity_bawah, out_pump_cold, out_pump_normal, out_servo, servo_open
+        # global fill_state, fill_previous, count_time_initiate
+        global holdingRegisterMicro,readHoldingRegisterMicro,fill_state
+        
         if (fill_state):
-            count_time_initiate = DELAY_BEFORE_AUTO_DOWN
-            fill_previous = True
+            # count_time_initiate = DELAY_BEFORE_AUTO_DOWN
+            # fill_previous = True
 
-            if (pulse <= pulsePerMiliLiter * product):
+            if (readHoldingRegisterMicro[0] != 3):
              #   if (in_sensor_proximity_atas.value or in_sensor_proximity_bawah.value):
-                if (True):        
-                    out_servo.angle = 90
-                    servo_open = True
-                    time.sleep(.5)
-                    out_pump_cold.on() if (cold) else out_pump_normal.on()
-                else :
-                    out_servo.angle = 0
-                    out_pump_cold.off()
-                    out_pump_normal.off()
-                    time.sleep(.5)
-                    servo_open = False
-                    toast("please put your tumbler")
-                    speak("put_tumbler")
+                if (True): 
+                    if readHoldingRegisterMicro[0] != 3 and successCommunication is not None:
+                        
+                        holdingRegisterMicro[10] = 2 if (cold) else holdingRegisterMicro[10] = 1
+               
 
-            else :
+            else:
                 self.fill_stop()
         
-        elif(not fill_state and fill_previous):
-            #print(count_time_initiate)
-            if (count_time_initiate == 0):
-                fill_previous = False
+        # elif(not fill_state and fill_previous):
+        #     #print(count_time_initiate)
+        #     if (count_time_initiate == 0):
+        #         fill_previous = False
 
-            if (count_time_initiate > 0):
-                count_time_initiate -= 1
+        #     if (count_time_initiate > 0):
+        #         count_time_initiate -= 1
 
-            if (count_time_initiate <= DELAY_WHILE_AUTO_DOWN):
-                self.act_down()
+        #     if (count_time_initiate <= DELAY_WHILE_AUTO_DOWN):
+        #         self.act_down()
+
 
 class ScreenQRPayment(MDScreen):
     screen_manager = ObjectProperty(None)
@@ -776,91 +826,95 @@ class ScreenMaintenance(MDScreen):
     
     def act_maintenance(self):
         global flag_maintenance
+        global holdingRegisterMicro
 
         if (flag_maintenance):
             flag_maintenance = False
+            holdingRegisterMicro[2] = 0
             toast("Mode running")
         else:
             flag_maintenance = True
+            
+            holdingRegisterMicro[2] = 1
             toast("Mode maintenance")
 
     def act_valve_cold(self):
-        global valve_cold, out_valve_cold
+        global valve_cold, holdingRegisterMicro
         if (valve_cold):
             valve_cold = False 
-            if (not DEBUG) : out_valve_cold.off()
+            if (not DEBUG) : holdingRegisterMicro[3] = 0
         else:
             valve_cold = True 
-            if (not DEBUG) : out_valve_cold.on()
+            if (not DEBUG) : holdingRegisterMicro[3] = 1
 
     def act_valve_normal(self):
-        global valve_normal, out_valve_normal
+        global valve_normal, holdingRegisterMicro
         if (valve_normal):
             valve_normal = False 
-            if (not DEBUG) : out_valve_normal.off()
+            if (not DEBUG) : holdingRegisterMicro[4] = 0
         else:
             valve_normal = True 
-            if (not DEBUG) : out_valve_normal.on()
+            if (not DEBUG) : holdingRegisterMicro[4] = 1
 
     def act_pump_main(self):
-        global pump_main, out_pump_main
+        global pump_main, holdingRegisterMicro
         if (pump_main):
             pump_main = False            
-            if (not DEBUG) : out_pump_main.on()
+            if (not DEBUG) :holdingRegisterMicro[5] = 1
         else:
             pump_main = True
-            if (not DEBUG) : out_pump_main.off()
+            if (not DEBUG) : holdingRegisterMicro[5] = 0
 
     def act_pump_cold(self):
-        global pump_cold, out_pump_cold
+        global pump_cold, holdingRegisterMicro
         if (pump_cold):
             pump_cold = False
-            if (not DEBUG) : out_pump_cold.off()
+            if (not DEBUG) : holdingRegisterMicro[6] = 0
         else:
             pump_cold = True 
-            if (not DEBUG) : out_pump_cold.on()
+            if (not DEBUG) : holdingRegisterMicro[6] = 1
 
     def act_pump_normal(self):
-        global pump_normal, out_pump_normal
+        global pump_normal, holdingRegisterMicro
         if (pump_normal):
             pump_normal = False
-            if (not DEBUG) : out_pump_normal.off()
+            if (not DEBUG) : holdingRegisterMicro[7] = 0
         else:
             pump_normal = True
-            if (not DEBUG) : out_pump_normal.on()
+            if (not DEBUG) : holdingRegisterMicro[7] = 1
 
     def act_open(self):
-        global servo_open, out_servo
+        global servo_open, holdingRegisterMicro
 
         servo_open = True
-        if (not DEBUG) : out_servo.angle = 90      
+        if (not DEBUG) : holdingRegisterMicro[8] = 1    
 
     def act_close(self):
-        global servo_open, out_servo
+        global servo_open, holdingRegisterMicro
 
         servo_open = False
-        if (not DEBUG) : out_servo.angle = 0
+        if (not DEBUG) : holdingRegisterMicro[8] = 0
 
     def act_up(self):
-        global linear_motor, out_motor_linear
+        global linear_motor, holdingRegisterMicro
 
         self.ids.bt_up.md_bg_color = "#3C9999"
-        if (not DEBUG) : out_motor_linear.forward()
+        if (not DEBUG) : holdingRegisterMicro[9] = 1
         toast("tumbler base is going up")
 
     def act_down(self):
-        global linear_motor, out_motor_linear
+        global linear_motor, holdingRegisterMicro
 
         self.ids.bt_down.md_bg_color = "#3C9999"
-        if (not DEBUG) : out_motor_linear.backward()
+        if (not DEBUG) : holdingRegisterMicro[9] = 2
         toast("tumbler base is going down")
 
     def act_stop(self):
-        global linear_motor, out_motor_linear
+        global linear_motor, holdingRegisterMicro
 
         self.ids.bt_up.md_bg_color = "#09343C"
         self.ids.bt_down.md_bg_color = "#09343C"
-        if (not DEBUG) : out_motor_linear.stop()
+        if (not DEBUG) : holdingRegisterMicro[9] = 0
 
     def exit(self):
         self.screen_manager.current = 'screen_choose_product'
