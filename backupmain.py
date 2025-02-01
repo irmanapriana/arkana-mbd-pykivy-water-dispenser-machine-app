@@ -287,6 +287,7 @@ class ScreenSplash(MDScreen):
             self.ids.progress_bar.value = 100
             self.ids.progress_bar_label.text = 'Loading.. [{:} %]'.format(100)
             time.sleep(0.5)
+            Clock.unschedule(self.update_progress_bar)
             self.screen_manager.current = 'screen_standby'
             return False
 
@@ -426,9 +427,9 @@ class ScreenStandby(MDScreen):
         if (main_switch):
             if (self.screen_manager.current == 'screen_standby'):
                 if(check_internet()):
+                    Clock.unschedule(self.regular_check)
                     self.screen_manager.current = 'screen_choose_product'
                     machine_ready()
-                    Clock.unschedule(self.regular_check)
 
         else:
             # print("machine is standby")
@@ -440,8 +441,11 @@ class ScreenChooseProduct(MDScreen):
 
     def __init__(self, **kwargs):
         super(ScreenChooseProduct, self).__init__(**kwargs)
-        Clock.schedule_interval(self.regular_check, 0.5)
+        
+
+    def on_enter(self):
         Clock.schedule_once(self.delayed_init, 5)
+        Clock.schedule_interval(self.regular_check, 0.5)
 
     def delayed_init(self, *args):
         self.reload_products()
@@ -493,6 +497,7 @@ class ScreenChooseProduct(MDScreen):
             print(toast_msg)
 
     def screen_scan_qr(self):
+        Clock.unschedule(self.regular_check)
         self.screen_manager.current = 'screen_scan_qr'
             
     def cold_mode(self, value):
@@ -501,6 +506,7 @@ class ScreenChooseProduct(MDScreen):
         
     def choose_payment(self, size, id, price):
         global product, idProduct, productPrice
+        Clock.unschedule(self.regular_check)
         self.screen_manager.current = 'screen_choose_payment'
         product = size
         idProduct = id
@@ -511,6 +517,7 @@ class ScreenChooseProduct(MDScreen):
         # print(productPrice,type(productPrice))
 
     def screen_info(self):
+        Clock.unschedule(self.regular_check)
         self.screen_manager.current = 'screen_info'
 
     def regular_check(self, *args):
@@ -869,8 +876,13 @@ class ScreenMaintenance(MDScreen):
 
     def __init__(self, **kwargs):
         super(ScreenMaintenance, self).__init__(**kwargs)
+        # Clock.schedule_interval(self.regular_check, .1)
+
+    def on_enter(self):
         Clock.schedule_interval(self.regular_check, .1)
+        # Clock.schedule_once(self.text_refocus, 0.5)
     
+
     def act_maintenance(self):
         global flag_maintenance
         global holdingRegisterMicro
@@ -964,6 +976,7 @@ class ScreenMaintenance(MDScreen):
         if (not DEBUG) : holdingRegisterMicro[9] = 0
 
     def exit(self):
+        Clock.unschedule(self.regular_check)
         self.screen_manager.current = 'screen_choose_product'
 
     def regular_check(self, *args):
