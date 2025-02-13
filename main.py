@@ -111,7 +111,7 @@ if(not DEBUG):
     # time.sleep(0.5)
 
     
-    microcontroller = minimalmodbus.Instrument('COM8', 1)
+    microcontroller = minimalmodbus.Instrument('COM9', 1)
     microcontroller.serial.baudrate = BAUDRATE
     microcontroller.serial.bytesize = BYTESIZES
     microcontroller.serial.parity = PARITY
@@ -265,6 +265,7 @@ threading.Thread(target=_logicCommunicationModbusMicro).start()
 class ScreenSplash(MDScreen):
     screen_manager = ObjectProperty(None)
     app_window = ObjectProperty(None)
+    
 
     def __init__(self, **kwargs):
         super(ScreenSplash, self).__init__(**kwargs)
@@ -274,7 +275,9 @@ class ScreenSplash(MDScreen):
         Clock.schedule_interval(self.regular_check, 1)
         
 #         Clock.schedule_interval(self.main_tank_read, 1)
-
+    def on_enter(self):
+        global positionScreen
+        positionScreen =1
     def update_progress_bar(self, *args):
         if (self.ids.progress_bar.value + 1) < 100:
             raw_value = self.ids.progress_bar_label.text.split('[')[-1]
@@ -412,6 +415,10 @@ class ScreenStandby(MDScreen):
         super(ScreenStandby, self).__init__(**kwargs)
         Clock.schedule_interval(self.regular_check, 3)
 
+    def on_enter(self):
+        global positionScreen
+        positionScreen =0
+        
     def regular_check(self, *args):
         global main_switch
 
@@ -633,18 +640,18 @@ class ScreenChoosePayment(MDScreen):
                     # phone=self.phone
                 )
                     
-                f = open('asset/qr_payment.png', 'wb')
             except:
                 pass
             try:
-
+                f = open('asset/qr_payment.png', 'wb')
                 f.write(requests.get(qrSource).content)
                 f.close
                 self.screen_manager.current = 'screen_qr_payment'
                 self.n_payment_check = 0
                 toast("Please pay, and wait for us to verify")
-                payment_check = Clock.schedule_interval(self.payment_check, 1)
-            except:
+                payment_check = Clock.schedule_interval(self.payment_check, 2)
+            except Exception as e:
+                print(e)
                 print("error masuk")
                 toast("please try again")
                 try:
@@ -807,6 +814,12 @@ class ScreenOperate(MDScreen):
                 print(f"masuk ke pengisian{modeModbus}")
                 if product ==1000:
                     holdingRegisterMicro[0] = product+20
+                if product ==220:
+                    holdingRegisterMicro[0] = product-4
+                if product ==600:
+                    holdingRegisterMicro[0] = product-5
+                if product ==400:
+                    holdingRegisterMicro[0] = product+10
                
 
             else:
