@@ -192,6 +192,15 @@ def read_registers(starting_address, num_registers):
             return None
     except Exception as e:
         print(f"Error membaca register dari address {starting_address}: {e}")
+        if str(e) == "WriteFile failed (PermissionError(13, 'Access is denied.', None, 5))":
+            try:
+                microcontroller.serial.close()
+            except:
+                print("gagal  close")
+            try:
+                microcontroller.serial.open()
+            except:
+                print("gagal  open")
         return None
 
 def read_coils_to_array(starting_address, num_coils):
@@ -217,7 +226,16 @@ def write_multiple_registers(starting_address, values):
         print(f"Error menulis nilai {values} ke register mulai dari address {starting_address}: {e}")
         
         if str(e) == "WriteFile failed (PermissionError(13, 'Access is denied.', None, 5))":
-            microcontroller = minimalmodbus.Instrument('COM9', 1)
+            try:
+                microcontroller.serial.close()
+            except:
+                print("gagal  close")
+            try:
+                microcontroller.serial.open()
+            except:
+                print("gagal  open")
+                # microcontroller.serial.close()
+            # microcontroller = minimalmodbus.Instrument('COM9', 1)
             # microcontroller.serial.baudrate = BAUDRATE
             # microcontroller.serial.bytesize = BYTESIZES
             # microcontroller.serial.parity = PARITY
@@ -225,7 +243,7 @@ def write_multiple_registers(starting_address, values):
             # microcontroller.serial.timeout = 0.6
             # microcontroller.mode = MODE
             # microcontroller.clear_buffers_before_each_transaction = True
-            print("error nya sama")
+            # print("error nya sama")
         # reconnect_microcontroller()
 
 def _logicCommunicationModbusMicro():
