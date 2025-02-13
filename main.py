@@ -71,7 +71,8 @@ levelMainTankArray = []
 windowSize = 200
 levelNormalTank = 0.0
 levelColdTank = 0.0
-maxMainTank = 8000.0
+# maxMainTank = 8000.0
+maxMainTank = 1440.0
 maxNormalTank = 350.0
 maxColdTank = 250.0
 qrSource = 'asset/qr_payment.png'
@@ -147,6 +148,31 @@ if(not DEBUG):
     # normalTank.serial.timeout = 0.5
     # normalTank.mode = MODE
     # normalTank.clear_buffers_before_each_transaction = True
+# def connect_microcontroller(port, slave_address, baudrate, bytesize, parity, stopbits, mode):
+#     try:
+#         micro = minimalmodbus.Instrument(port, slave_address)
+#         micro.serial.baudrate = baudrate
+#         micro.serial.bytesize = bytesize
+#         micro.serial.parity = parity
+#         micro.serial.stopbits = stopbits
+#         micro.serial.timeout = 0.6
+#         micro.mode = mode
+#         micro.clear_buffers_before_each_transaction = True
+#         print("Microcontroller connected successfully")
+#         # return micro
+#     except Exception as e:
+#         print(f"Failed to connect: {e}")
+        # return None
+    
+# def reconnect_microcontroller():
+#     global microcontroller
+    # while True:
+        # if microcontroller is None:
+        #     print("Attempting to reconnect...")
+    # microcontroller = connect_microcontroller('COM9', 1, BAUDRATE, BYTESIZES, PARITY, STOPBITS, MODE)
+            # if microcontroller:
+            #     print("Reconnected successfully")
+
 def read_registers(starting_address, num_registers):
     global counterSame,lastReadHolding,readHoldingRegisterMicro,holdingRegisterMicro,microcontroller
     try:
@@ -178,7 +204,7 @@ def read_coils_to_array(starting_address, num_coils):
         
     except Exception as e:
         print(f"Error membaca status coil dari address {starting_address}: {e}")
-        
+        # reconnect_microcontroller()
     
 # Fungsi untuk menulis ke beberapa register
 def write_multiple_registers(starting_address, values):
@@ -189,12 +215,24 @@ def write_multiple_registers(starting_address, values):
         print(f"Berhasil menulis nilai {values} ke register mulai dari address {starting_address}")
     except Exception as e:
         print(f"Error menulis nilai {values} ke register mulai dari address {starting_address}: {e}")
+        
+        if str(e) == "WriteFile failed (PermissionError(13, 'Access is denied.', None, 5))":
+            microcontroller = minimalmodbus.Instrument('COM9', 1)
+            # microcontroller.serial.baudrate = BAUDRATE
+            # microcontroller.serial.bytesize = BYTESIZES
+            # microcontroller.serial.parity = PARITY
+            # microcontroller.serial.stopbits = STOPBITS
+            # microcontroller.serial.timeout = 0.6
+            # microcontroller.mode = MODE
+            # microcontroller.clear_buffers_before_each_transaction = True
+            print("error nya sama")
+        # reconnect_microcontroller()
 
 def _logicCommunicationModbusMicro():
     counterCom = 0
     while 1:
         global positionScreen,modeModbus,holdingRegisterMicro,successCommunication,microcontroller
-        
+        # time.sleep(0.1)
         # modeModbus = 0
         # Langkah 2: Tulis ke register jika pembacaan berhasil
         if positionScreen == 0:
@@ -204,12 +242,14 @@ def _logicCommunicationModbusMicro():
                 counterCom = counterCom + 1
                 if counterCom > 3:
                     positionScreen = 1
-        else:
+        if positionScreen == 1:
             successCommunication = read_registers(10,3)
             if modeModbus ==  3:
                 positionScreen =0
                 modeModbus = 0
             counterCom = 0
+        if positionScreen == 2:
+            pass
             # read_coils_to_array(0, 12)
             # write_multiple_registers(0, holdingRegisterMicro[:11])
     # _logicCommunicationModbusMicro(2)
@@ -291,6 +331,7 @@ class ScreenSplash(MDScreen):
             self.ids.progress_bar_label.text = 'Loading.. [{:} %]'.format(100)
             time.sleep(0.5)
             Clock.unschedule(self.update_progress_bar)
+            Clock.unschedule(self.regular_check)
             self.screen_manager.current = 'screen_standby'
             return False
 
@@ -451,8 +492,10 @@ class ScreenChooseProduct(MDScreen):
         
 
     def on_enter(self):
+        global positionScreen
         Clock.schedule_once(self.delayed_init, 5)
         Clock.schedule_interval(self.regular_check, 0.5)
+        positionScreen = 2
 
     def delayed_init(self, *args):
         self.reload_products()
@@ -640,8 +683,10 @@ class ScreenChoosePayment(MDScreen):
                     # phone=self.phone
                 )
                     
-            except:
-                pass
+            except Exception as e:
+                print(e)
+                print("error masuk")
+                toast("please try again")
             try:
                 f = open('asset/qr_payment.png', 'wb')
                 f.write(requests.get(qrSource).content)
@@ -649,10 +694,9 @@ class ScreenChoosePayment(MDScreen):
                 self.screen_manager.current = 'screen_qr_payment'
                 self.n_payment_check = 0
                 toast("Please pay, and wait for us to verify")
-                payment_check = Clock.schedule_interval(self.payment_check, 2)
+                payment_check = Clock.schedule_interval(self.payment_check, 1)
             except Exception as e:
                 print(e)
-                print("error masuk")
                 toast("please try again")
                 try:
                     f.close
@@ -739,6 +783,10 @@ class ScreenOperate(MDScreen):
         super(ScreenOperate, self).__init__(**kwargs)
         Clock.schedule_interval(self.regular_check, .1)
 
+    def on_enter(self):
+        global positionScreen
+        positionScreen = 0
+
     def act_up(self):
         global linear_motor,holdingRegisterMicro
 
@@ -815,9 +863,9 @@ class ScreenOperate(MDScreen):
                 if product ==1000:
                     holdingRegisterMicro[0] = product+20
                 if product ==220:
-                    holdingRegisterMicro[0] = product-4
+                    holdingRegisterMicro[0] = product
                 if product ==600:
-                    holdingRegisterMicro[0] = product-5
+                    holdingRegisterMicro[0] = product+20
                 if product ==400:
                     holdingRegisterMicro[0] = product+10
                
@@ -896,6 +944,8 @@ class ScreenMaintenance(MDScreen):
         # Clock.schedule_interval(self.regular_check, .1)
 
     def on_enter(self):
+        global positionScreen
+        positionScreen = 0
         Clock.schedule_interval(self.regular_check, .1)
         # Clock.schedule_once(self.text_refocus, 0.5)
     
