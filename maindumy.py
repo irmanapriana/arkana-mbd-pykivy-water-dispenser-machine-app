@@ -113,7 +113,7 @@ if(not DEBUG):
     # time.sleep(0.5)
 
     
-    microcontroller = minimalmodbus.Instrument('COM9', 1)
+    microcontroller = minimalmodbus.Instrument('COM3', 1)
     microcontroller.serial.baudrate = BAUDRATE
     microcontroller.serial.bytesize = BYTESIZES
     microcontroller.serial.parity = PARITY
@@ -938,59 +938,64 @@ class ScreenQRPayment(MDScreen):
 
     def cancel(self):
         global payment_check
-        Clock.unschedule(payment_check)
+        # Clock.unschedule(payment_check)
         self.qrcodeCancel = True
         self.screen_manager.current = 'screen_choose_product'
 
     def dummy_success(self):
         global payment_check
-        Clock.unschedule(payment_check)
-        Clock.unschedule(self.regular_check)
+        # Clock.unschedule(payment_check)
+        # Clock.unschedule(self.regular_check)
         toast("Success! Fit your tumbler then press Start")
         self.screen_manager.current = 'screen_operate' 
     
     def payment_check(self, *args):
         global payment_check
-        self.n_payment_check += 1
-        print(self.n_payment_check)
-        if (self.n_payment_check <= 60):
-            try :
-                r = requests.get(SERVER + 'machine_transactions/' + str(self.transaction_id))
+        while 1:
+            time.sleep(1)
+            self.n_payment_check += 1
+            print(self.n_payment_check)
+            if (self.n_payment_check <= 60):
+                try :
+                    r = requests.get(SERVER + 'machine_transactions/' + str(self.transaction_id))
 
-                print(r.json()['payment_status'])
-                
-                if (r.json()['payment_status'] == 'settlement'):
-                    Clock.unschedule(self.payment_check)
-                    # toast('payment success')
-                    self.screen_manager.current = 'screen_operate'
-                    toast("Success! Fit your tumbler then press Start")
-                    # speak("pay_succes")
-                    # time.sleep(0.5)
-                    # speak("command_tumbler")
-                    # time.sleep(0.5)
-                    # speak("command_fill")
-                    self.transaction_id = ''
-
-                # elif (r.json()['payment_status'] != 'pending'):
-                #     Clock.unschedule(self.payment_check)
-                #     toast("Pembayaran gagal, silahkan coba lagi")
-                #     speak("Maaf, pembayaran gagal, silahkan coba kembali", "pay_failed")
-                #     self.screen_manager.current = 'screen_choose_product'
-                #     print(r.json()['data']['payment_status'])
-                #     self.transaction_id = ''
-
+                    print(r.json()['payment_status'])
                     
-            except Exception as e:
-                # self.transaction_id = ''
-                print(e)
-            
-        else:
-            Clock.unschedule(payment_check)
-            Clock.unschedule(self.regular_check)
-            toast("Payment failed, please try again")
-            # speak("pay_failed")
-            self.transaction_id = ''
-            self.screen_manager.current = 'screen_choose_product'
+                    if (r.json()['payment_status'] == 'settlement'):
+                        # Clock.unschedule(self.payment_check)
+                        # toast('payment success')
+                        self.screen_manager.current = 'screen_operate'
+                        toast("Success! Fit your tumbler then press Start")
+                        # speak("pay_succes")
+                        # time.sleep(0.5)
+                        # speak("command_tumbler")
+                        # time.sleep(0.5)
+                        # speak("command_fill")
+                        self.transaction_id = ''
+                        break
+                    # elif (r.json()['payment_status'] != 'pending'):
+                    #     Clock.unschedule(self.payment_check)
+                    #     toast("Pembayaran gagal, silahkan coba lagi")
+                    #     speak("Maaf, pembayaran gagal, silahkan coba kembali", "pay_failed")
+                    #     self.screen_manager.current = 'screen_choose_product'
+                    #     print(r.json()['data']['payment_status'])
+                    #     self.transaction_id = ''
+
+                        
+                except Exception as e:
+                    # self.transaction_id = ''
+                    print(e)
+                
+            else:
+                # Clock.unschedule(payment_check)
+                # Clock.unschedule(self.regular_check)
+                toast("Payment failed, please try again")
+                # speak("pay_failed")
+                self.transaction_id = ''
+                self.screen_manager.current = 'screen_choose_product'
+                break
+            if self.qrcodeCancel == True:
+                break
 
     def makeQrcode(self):
         global qr, qrSource, product, idProduct, cold, productPrice, payment_check
@@ -1013,8 +1018,10 @@ class ScreenQRPayment(MDScreen):
                 f.close
                 # self.screen_manager.current = 'screen_qr_payment'
                 self.n_payment_check = 0
-                payment_check = Clock.schedule_interval(self.payment_check, 1)
-                Clock.schedule_interval(self.regular_check, 10)
+                # payment_check = Clock.schedule_interval(self.payment_check, 1)
+                threading.Thread(target=self.payment_check).start()
+                threading.Thread(target=self.regular_check).start()
+                # Clock.schedule_interval(self.regular_check, 10)
                 break
                 # payment_check = Clock.schedule_interval(self.payment_check, 1)
                     
