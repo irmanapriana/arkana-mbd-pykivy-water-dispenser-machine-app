@@ -87,6 +87,7 @@ readHoldingRegisterMicro = [0,0]
 readCoilMicro = [0,0,0,0]
 lastReadHolding = 0
 successCommunication = None
+loadingpayment = False
 if(not DEBUG):
     # # input declaration 
     # in_machine_ready = DigitalInputDevice(24, pull_up=None, active_state=True, bounce_time=4)
@@ -178,7 +179,7 @@ def read_registers(starting_address, num_registers):
     try:
         # Membaca register
         registers = microcontroller.read_registers(starting_address, num_registers, functioncode=3)
-        print(f"Berhasil membaca register dari address {starting_address}: {registers}")
+        # print(f"Berhasil membaca register dari address {starting_address}: {registers}")
         readHoldingRegisterMicro = registers
         if readHoldingRegisterMicro[0] == lastReadHolding:
             counterSame = counterSame + 1
@@ -191,11 +192,12 @@ def read_registers(starting_address, num_registers):
             lastReadHolding = readHoldingRegisterMicro[0]
             return None
     except Exception as e:
-        print(f"Error membaca register dari address {starting_address}: {e}")
+        # print(f"Error membaca register dari address {starting_address}: {e}")
         if str(e) == "WriteFile failed (PermissionError(13, 'Access is denied.', None, 5))":
             try:
                 microcontroller.serial.close()
             except:
+                pass
                 print("gagal  close")
             try:
                 microcontroller.serial.open()
@@ -208,11 +210,12 @@ def read_coils_to_array(starting_address, num_coils):
     try:
         # Membaca status coil
         coils = microcontroller.read_bits(starting_address, num_coils, functioncode=1)  # Function code 1: Read Coils
-        print(f"Berhasil membaca status coil dari address {starting_address}: {coils}")
+        # print(f"Berhasil membaca status coil dari address {starting_address}: {coils}")
         readCoilMicro = coils
         
     except Exception as e:
-        print(f"Error membaca status coil dari address {starting_address}: {e}")
+        # print(f"Error membaca status coil dari address {starting_address}: {e}")
+        pass
         # reconnect_microcontroller()
     
 # Fungsi untuk menulis ke beberapa register
@@ -221,9 +224,9 @@ def write_multiple_registers(starting_address, values):
     try:
         # Menulis ke beberapa register
         microcontroller.write_registers(starting_address, values)
-        print(f"Berhasil menulis nilai {values} ke register mulai dari address {starting_address}")
+        # print(f"Berhasil menulis nilai {values} ke register mulai dari address {starting_address}")
     except Exception as e:
-        print(f"Error menulis nilai {values} ke register mulai dari address {starting_address}: {e}")
+        # print(f"Error menulis nilai {values} ke register mulai dari address {starting_address}: {e}")
         
         if str(e) == "WriteFile failed (PermissionError(13, 'Access is denied.', None, 5))":
             try:
@@ -575,11 +578,11 @@ class ScreenChooseProduct(MDScreen):
     def choose_payment(self, size, id, price):
         global product, idProduct, productPrice
         Clock.unschedule(self.regular_check)
-        self.screen_manager.current = 'screen_choose_payment'
         product = size
         idProduct = id
         productPrice = price
-        toast("Choose your payment method")
+        self.screen_manager.current = 'screen_qr_payment'
+        # toast("Choose your payment method")
         # print(idProduct,type(idProduct))
         # print(product,type(product))
         # print(productPrice,type(productPrice))
@@ -659,7 +662,7 @@ class ScreenChoosePayment(MDScreen):
 
     def pay(self, method):
         global qr, qrSource, product, idProduct, cold, productPrice, payment_check
-
+        global loadingpayment
         print(method)
         if(method=="GOPAY"):
             # ..... create transaction
@@ -678,53 +681,64 @@ class ScreenChoosePayment(MDScreen):
             f.write(requests.get(qrSource).content)
             f.close
 
-            self.screen_manager.current = 'screen_qr_payment'
             # print("payment qris")
 
             # .... scheduling payment check
             self.n_payment_check = 0
             toast("Please pay, and wait for us to verify")
+            self.screen_manager.current = 'screen_qr_payment'
             payment_check = Clock.schedule_interval(self.payment_check, 2)
             # speak("pay_gopay")
 
         elif(method=="QRIS"):
             # ..... create transaction
-            try:
-                qrSource = self.create_transaction(
-                    machine_code=MACHINE_CODE,
-                    method='gopay',
-                    product_id=idProduct,
-                    product_size=product,
-                    qty=1,
-                    price=productPrice,
-                    product_type="cold" if (cold) else "normal",
-                    # phone=self.phone
-                )
-                    
-            except Exception as e:
-                print(e)
-                print("error masuk")
-                toast("please try again")
-            try:
-                f = open('asset/qr_payment.png', 'wb')
-                f.write(requests.get(qrSource).content)
-                f.close
-                self.screen_manager.current = 'screen_qr_payment'
-                self.n_payment_check = 0
-                toast("Please pay, and wait for us to verify")
-                payment_check = Clock.schedule_interval(self.payment_check, 1)
-            except Exception as e:
-                print(e)
-                toast("please try again")
+            if loadingpayment == False:
+                loadingpayment = True
                 try:
+                    qrSource = self.create_transaction(
+                        machine_code=MACHINE_CODE,
+                        method='gopay',
+                        product_id=idProduct,
+                        product_size=product,
+                        qty=1,
+                        price=productPrice,
+                        product_type="cold" if (cold) else "normal",
+                        # phone=self.phone
+                    )
+                        
+                except Exception as e:
+                    loadingpayment = False
+                    print(e)
+                    print("error masuk")
+                    toast("please try again")
+                try:
+                    f = open('asset/qr_payment.png', 'wb')
+                    f.write(requests.get(qrSource).content)
                     f.close
-                except:
-                    pass
+                    self.n_payment_check = 0
+                    toast("Please pay, and wait for us to verify")
+                    self.screen_manager.current = 'screen_qr_payment'
+                    payment_check = Clock.schedule_interval(self.payment_check, 1)
+                    
+                    loadingpayment = False
+                except Exception as e:
+                    print(e)
+                    
+                    loadingpayment = False
+                    toast("please try again")
+                    try:
+                        f.close
+                    except:
+                        pass
+                loadingpayment = False
 
-            
+            else:
+                pass
+                
             # speak("pay_qris")
 
     def create_transaction(self, method, machine_code, product_id, product_size, qty, price, product_type, phone='-'):
+        global loadingpayment
         try :
             r = requests.post(SERVER + 'machine_transactions', json={
                 "payment_method": method,
@@ -743,9 +757,12 @@ class ScreenChoosePayment(MDScreen):
             # print(r.json()['data'])
             self.transaction_id = r.json()['data']['id']
             print("transaction id : ", self.transaction_id)
+            
+            loadingpayment = False
             return r.json()['data']['payment_response_parameter']['qr_string'] if (method == 'qris') else r.json()['data']['payment_response_parameter']['actions'][0]['url']
         except Exception as e:
             print(e)
+            loadingpayment = False
             toast("payment error")
     
     def payment_check(self, *args):
@@ -755,7 +772,7 @@ class ScreenChoosePayment(MDScreen):
             try :
                 r = requests.get(SERVER + 'machine_transactions/' + str(self.transaction_id))
 
-                print(r.json()['payment_status'])
+                # print(r.json()['payment_status'])
                 
                 if (r.json()['payment_status'] == 'settlement'):
                     Clock.unschedule(self.payment_check)
@@ -908,22 +925,134 @@ class ScreenQRPayment(MDScreen):
 
     def __init__(self, **kwargs):
         super(ScreenQRPayment, self).__init__(**kwargs)
-        Clock.schedule_interval(self.regular_check, 10)
+        
         
     def regular_check(self, *args):
         self.ids.image_qr_payment.source = 'asset/qr_payment.png'
         self.ids.image_qr_payment.reload()
+    def on_enter(self):
+        self.qrcodeCancel = False
+        threading.Thread(target=self.makeQrcode).start()
 
     def cancel(self):
         global payment_check
         Clock.unschedule(payment_check)
+        self.qrcodeCancel = True
         self.screen_manager.current = 'screen_choose_product'
 
     def dummy_success(self):
         global payment_check
         Clock.unschedule(payment_check)
+        Clock.unschedule(self.regular_check)
         toast("Success! Fit your tumbler then press Start")
         self.screen_manager.current = 'screen_operate' 
+    
+    def payment_check(self, *args):
+        self.n_payment_check += 1
+        print(self.n_payment_check)
+        if (self.n_payment_check <= 60):
+            try :
+                r = requests.get(SERVER + 'machine_transactions/' + str(self.transaction_id))
+
+                print(r.json()['payment_status'])
+                
+                if (r.json()['payment_status'] == 'settlement'):
+                    Clock.unschedule(self.payment_check)
+                    # toast('payment success')
+                    self.screen_manager.current = 'screen_operate'
+                    toast("Success! Fit your tumbler then press Start")
+                    # speak("pay_succes")
+                    # time.sleep(0.5)
+                    # speak("command_tumbler")
+                    # time.sleep(0.5)
+                    # speak("command_fill")
+                    self.transaction_id = ''
+
+                # elif (r.json()['payment_status'] != 'pending'):
+                #     Clock.unschedule(self.payment_check)
+                #     toast("Pembayaran gagal, silahkan coba lagi")
+                #     speak("Maaf, pembayaran gagal, silahkan coba kembali", "pay_failed")
+                #     self.screen_manager.current = 'screen_choose_product'
+                #     print(r.json()['data']['payment_status'])
+                #     self.transaction_id = ''
+
+                    
+            except Exception as e:
+                # self.transaction_id = ''
+                print(e)
+            
+        else:
+            Clock.unschedule(self.payment_check)
+            Clock.unschedule(self.regular_check)
+            toast("Payment failed, please try again")
+            # speak("pay_failed")
+            self.transaction_id = ''
+            self.screen_manager.current = 'screen_choose_product'
+
+    def makeQrcode(self):
+        global qr, qrSource, product, idProduct, cold, productPrice, payment_check
+        while 1:
+            # time.sleep(1)
+            print("jalan thread")
+            try:
+                qrSource = self.create_transaction(
+                    machine_code=MACHINE_CODE,
+                    method='gopay',
+                    product_id=idProduct,
+                    product_size=product,
+                    qty=1,
+                    price=productPrice,
+                    product_type="cold" if (cold) else "normal",
+                    # phone=self.phone
+                )
+                f = open('asset/qr_payment.png', 'wb')
+                f.write(requests.get(qrSource).content)
+                f.close
+                # self.screen_manager.current = 'screen_qr_payment'
+                self.n_payment_check = 0
+                payment_check = Clock.schedule_interval(self.payment_check, 1)
+                Clock.schedule_interval(self.regular_check, 10)
+                break
+                # payment_check = Clock.schedule_interval(self.payment_check, 1)
+                    
+            except Exception as e:
+                print(e)
+                print("error masuk")
+                toast("please try again")
+                try:
+                    f.close
+                except:
+                    pass
+            if self.qrcodeCancel == True:
+                break
+
+    def create_transaction(self, method, machine_code, product_id, product_size, qty, price, product_type, phone='-'):
+        try :
+            print(SERVER + 'machine_transactions')
+            
+            r = requests.post(SERVER + 'machine_transactions', json={
+                "payment_method": method,
+                "machine_code": machine_code,
+                "phone": phone,
+                "items": [
+                    {
+                        "product_id": product_id,
+                        "qty": qty,
+                        "size": product_size,
+                        "unit_price": price,
+                        "drink_type": product_type
+                    }
+                ]
+            })
+            # print(r.json()['data'])
+            self.transaction_id = r.json()['data']['id']
+            print("transaction id : ", self.transaction_id)
+            return r.json()['data']['payment_response_parameter']['qr_string'] if (method == 'qris') else r.json()['data']['payment_response_parameter']['actions'][0]['url']
+        except Exception as e:
+            print(e)
+            toast("payment error")
+
+ 
 
 class ScreenInfo(MDScreen):
     screen_manager = ObjectProperty(None)
