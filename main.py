@@ -944,10 +944,7 @@ class ScreenQRPayment(MDScreen):
 
     def dummy_success(self):
         global payment_check
-        Clock.unschedule(payment_check)
-        Clock.unschedule(self.regular_check)
-        toast("Success! Fit your tumbler then press Start")
-        self.screen_manager.current = 'screen_operate' 
+        pass
     
     def payment_check(self, *args):
         global payment_check
@@ -986,10 +983,11 @@ class ScreenQRPayment(MDScreen):
             
         else:
             Clock.unschedule(payment_check)
-            Clock.unschedule(self.regular_check)
+            # Clock.unschedule(self.regular_check)
             toast("Payment failed, please try again")
             # speak("pay_failed")
             self.transaction_id = ''
+            self.qrcodeCancel = True
             self.screen_manager.current = 'screen_choose_product'
 
     def makeQrcode(self):
@@ -1014,7 +1012,8 @@ class ScreenQRPayment(MDScreen):
                 # self.screen_manager.current = 'screen_qr_payment'
                 self.n_payment_check = 0
                 payment_check = Clock.schedule_interval(self.payment_check, 1)
-                Clock.schedule_interval(self.regular_check, 10)
+                # Clock.schedule_interval(self.regular_check, 10)
+                Clock.schedule_once(self.regular_check, 0.5)
                 break
                 # payment_check = Clock.schedule_interval(self.payment_check, 1)
                     
@@ -1054,8 +1053,6 @@ class ScreenQRPayment(MDScreen):
         except Exception as e:
             print(e)
             toast("payment error")
-
- 
 
 class ScreenInfo(MDScreen):
     screen_manager = ObjectProperty(None)
