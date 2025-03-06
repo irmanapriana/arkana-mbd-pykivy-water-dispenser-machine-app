@@ -13,6 +13,9 @@ from kivy.properties import ObjectProperty
 from playsound import playsound
 import minimalmodbus, time, qrcode, requests
 import threading
+import logging
+import os
+from datetime import datetime
 qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4,)
 
 colors = {
@@ -114,6 +117,7 @@ if(not DEBUG):
 
     
     microcontroller = minimalmodbus.Instrument('COM9', 1)
+    # microcontroller = minimalmodbus.Instrument('COM3', 1)
     microcontroller.serial.baudrate = BAUDRATE
     microcontroller.serial.bytesize = BYTESIZES
     microcontroller.serial.parity = PARITY
@@ -173,6 +177,25 @@ if(not DEBUG):
     # microcontroller = connect_microcontroller('COM9', 1, BAUDRATE, BYTESIZES, PARITY, STOPBITS, MODE)
             # if microcontroller:
             #     print("Reconnected successfully")
+class ActivityLogger:
+    def __init__(self, log_dir="logs"):
+        self.log_dir = log_dir
+        os.makedirs(log_dir, exist_ok=True)
+        self.update_log_file()
+    
+    def update_log_file(self):
+        log_filename = datetime.now().strftime("%Y-%m-%d.log")
+        log_path = os.path.join(self.log_dir, log_filename)
+        logging.basicConfig(
+            filename=log_path,
+            level=logging.INFO,
+            format='%(asctime)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+    
+    def log_activity(self, activity):
+        self.update_log_file()  # Ensure log file is updated daily
+        logging.info(activity)
 
 def read_registers(starting_address, num_registers):
     global counterSame,lastReadHolding,readHoldingRegisterMicro,holdingRegisterMicro,microcontroller
@@ -323,7 +346,9 @@ threading.Thread(target=_logicCommunicationModbusMicro).start()
 # Clock.schedule_interval(_logicCommunicationModbusMicro, 2)
 # if (not DEBUG) : in_machine_ready.when_activated = machine_ready
 # if (not DEBUG) : in_sensor_flow.when_activated = count_pulse 
+logger = ActivityLogger()
 class ScreenSplash(MDScreen):
+    
     screen_manager = ObjectProperty(None)
     app_window = ObjectProperty(None)
     
@@ -337,7 +362,8 @@ class ScreenSplash(MDScreen):
         
 #         Clock.schedule_interval(self.main_tank_read, 1)
     def on_enter(self):
-        global positionScreen
+        global positionScreen,logger
+        logger.log_activity("Mesin Baru menyala, masuk di Splash Screen")
         positionScreen =1
     def update_progress_bar(self, *args):
         if (self.ids.progress_bar.value + 1) < 100:
@@ -420,43 +446,55 @@ class ScreenSplash(MDScreen):
         else:
             main_switch = True
 
-    def retry_get_products(self, *args):   
+    def retry_get_products(self, *args):  
+        global logger 
         try :
+            logger.log_activity("Mesin Meminta Reload_products")
             screen_choose_product = self.screen_manager.get_screen('screen_choose_product')
             screen_choose_product.reload_products()
             print("try reloading products")
 
-        except Exception as e:                    
+        except Exception as e:                  
+            logger.log_activity("Mesin GAGAL Meminta Reload_products")  
             print(f'Error reload products:{e}')
 
     def retry_update_status(self, *args):   
-        global main_switch
+        global main_switch,logger
 
         if(not flag_maintenance):
             if(main_switch):
                 if(levelMainTank <= LOW_LEVEL):
                     try :
+                        logger.log_activity("Mesin Mengirim Kondisi Low Ke Server")
                         requests.patch(SERVER + 'machines/' + MACHINE_CODE, data={
                             'stock' : str(levelMainTank),
                             'status' : 'low_level'
                         })
+                        logger.log_activity("Mesin SUCCESS Mengirim Kondisi Low Ke Server")
                     except Exception as e:
+                        logger.log_activity("Mesin GAGAL Mengirim Kondisi Low Ke Server")
                         print(e)
                     print('updating status to server')
 
                     if (levelMainTank <= LOW_LOW_LEVEL):
                         try :
+                            logger.log_activity("Mesin Mengirim Kondisi Low Low Ke Server")
                             requests.patch(SERVER + 'machines/' + MACHINE_CODE, data={
                                 'stock' : str(levelMainTank),
                                 'status' : 'not_ready'
                             })
+                            logger.log_activity("Mesin SUCCESS Mengirim Kondisi Low Low Ke Server")
                         except Exception as e:
                             print(e)
+                            logger.log_activity("Mesin GAGAL Mengirim Kondisi Low Low Ke Server")
+                        
 
                         self.screen_manager.current = 'screen_standby'
                     else:
                         if (self.screen_manager.current == 'screen_standby') : self.screen_manager.current = 'screen_choose_product'
                 else:
+                    logger.log_activity("Mesin Mengirim Kondisi Ready Ke Server")
+                        
                     requests.patch(SERVER + 'machines/' + MACHINE_CODE, data={
                         'stock' : str(levelMainTank),
                         'status' : 'ready'
@@ -478,11 +516,13 @@ class ScreenStandby(MDScreen):
         Clock.schedule_interval(self.regular_check, 3)
 
     def on_enter(self):
-        global positionScreen
+        global positionScreen,logger
+        logger.log_activity("Mesin Masuk Screen Stand By")
+                        
         positionScreen =0
         
     def regular_check(self, *args):
-        global main_switch
+        global main_switch,logger
 
         if(not DEBUG) :
             try:
@@ -495,6 +535,7 @@ class ScreenStandby(MDScreen):
                 # program for displaying IO condition
         if (main_switch):
             if (self.screen_manager.current == 'screen_standby'):
+                logger.log_activity("Mesin check Kondisi Internet")
                 if(check_internet()):
                     Clock.unschedule(self.regular_check)
                     self.screen_manager.current = 'screen_choose_product'
@@ -513,19 +554,25 @@ class ScreenChooseProduct(MDScreen):
         
 
     def on_enter(self):
-        global positionScreen
+        global positionScreen,logger
         Clock.schedule_once(self.delayed_init, 5)
         Clock.schedule_interval(self.regular_check, 0.5)
+        
+        logger.log_activity("Mesin Masuk Screen Choose Product")
         positionScreen = 2
 
     def delayed_init(self, *args):
         self.reload_products()
 
     def reload_products(self):
+        global logger
         try :
+            
             r = requests.get(SERVER + 'products', {"is_featured" : "1"})
+            logger.log_activity(f"Mesin mengirim data ke server reload product")
             products = r.json()['data']            
             
+            logger.log_activity(f"Balasan Server {str(products)}")
             layout_products = self.ids.layout_products
             layout_products.clear_widgets(children=None)
 
@@ -565,6 +612,7 @@ class ScreenChooseProduct(MDScreen):
                 )
         except Exception as e:
             toast_msg = f'Error Reload Products: {e}'
+            logger.log_activity(f"Gagal meminta server")
             print(toast_msg)
 
     def screen_scan_qr(self):
@@ -608,6 +656,8 @@ class ScreenScanQr(MDScreen):
         Clock.schedule_interval(self.refocusing, 2)
 
     def on_enter(self):
+        global logger
+        logger.log_activity(f"Mesin masuk Screen Screen Scan Qr")
         Clock.schedule_once(self.text_refocus, 0.5)
 
     def text_refocus(self, dt):
@@ -616,6 +666,8 @@ class ScreenScanQr(MDScreen):
     def coupon_validate(self):
         global text_coupon, cold, product
         
+        global logger
+        
         text_coupon = self.ids.coupon.text
         message = "Error connection"
 #         text_coupon = text_coupon.upper()
@@ -623,9 +675,12 @@ class ScreenScanQr(MDScreen):
 #         if (text_coupon != ""):
         try :
             r = requests.post(SERVER + 'transactions/' + text_coupon + '/used_machine', data={'machine_code' : MACHINE_CODE})
+            logger.log_activity(f"Mesin Request data QR ")
 
             status = r.json()['status']
+            logger.log_activity(f"Balasan Server status{str(status)}")
             message = r.json()['message']
+            logger.log_activity(f"Balasan Server message{str(message)}")
 
             if (status == "success"):
                 endpoint = f'{SERVER}transaction_by_code/{text_coupon}'
@@ -642,6 +697,7 @@ class ScreenScanQr(MDScreen):
                 toast(f'Coupon {text_coupon}, {message}')
         except Exception as e:
             toast(f'Coupon {text_coupon}, {message}')
+            logger.log_activity(f"Mesin Gagal Mengirim data Coupon QR")
             
         text_coupon = ""
         self.ids.coupon.text = ""
@@ -819,7 +875,9 @@ class ScreenOperate(MDScreen):
         Clock.schedule_interval(self.regular_check, .1)
 
     def on_enter(self):
-        global positionScreen
+        global positionScreen,logger
+        
+        logger.log_activity(f"Mesin Masuk Screen Pengisian")
         positionScreen = 0
 
     def act_up(self):
@@ -845,7 +903,9 @@ class ScreenOperate(MDScreen):
 
     def fill_start(self):
         global modeModbus,holdingRegisterMicro,readHoldingRegisterMicro,fill_state
-
+        global logger
+        
+        logger.log_activity(f"Mesin Sedang Melakukan Pengisian")
         if (not DEBUG and not fill_state) :
             pulse = 0 
             fill_state = True
@@ -868,6 +928,9 @@ class ScreenOperate(MDScreen):
         global out_pump_cold, out_pump_normal, servo_open, fill_state
         global levelMainTank,positionScreen,modeModbus
         global holdingRegisterMicro,readHoldingRegisterMicro
+        global logger
+        
+        logger.log_activity(f"Mesin Selesai Melakukan Pengisian")
         servo_open = False
         fill_state = False
 
@@ -932,6 +995,9 @@ class ScreenQRPayment(MDScreen):
         self.ids.image_qr_payment.reload()
     def on_enter(self):
         self.qrcodeCancel = False
+        global logger
+        
+        logger.log_activity(f"Mesin Masuk Screen Scan Qris")
         self.ids.image_qr_payment.source = 'asset/loading.png'
         self.ids.image_qr_payment.reload()
         threading.Thread(target=self.makeQrcode).start()
@@ -948,14 +1014,17 @@ class ScreenQRPayment(MDScreen):
     
     def payment_check(self, *args):
         global payment_check
+        global logger
+        
+        logger.log_activity(f"Mesin Masuk Screen Scan Qris")
         self.n_payment_check += 1
         print(self.n_payment_check)
         if (self.n_payment_check <= 60):
             try :
                 r = requests.get(SERVER + 'machine_transactions/' + str(self.transaction_id))
-
+                logger.log_activity(f"Mesin Mengirim data Barcode{SERVER + 'machine_transactions/' + str(self.transaction_id)}")
                 print(r.json()['payment_status'])
-                
+                logger.log_activity(f"Mesin Menerima data  {str(r.json()['payment_status'])}")
                 if (r.json()['payment_status'] == 'settlement'):
                     Clock.unschedule(self.payment_check)
                     # toast('payment success')
@@ -979,6 +1048,7 @@ class ScreenQRPayment(MDScreen):
                     
             except Exception as e:
                 # self.transaction_id = ''
+                logger.log_activity(f"Mesin gagal Mengirim update status barcode")
                 print(e)
             
         else:
@@ -988,13 +1058,15 @@ class ScreenQRPayment(MDScreen):
             # speak("pay_failed")
             self.transaction_id = ''
             self.qrcodeCancel = True
+            logger.log_activity(f"QRIS kaduarsa")
             self.screen_manager.current = 'screen_choose_product'
 
     def makeQrcode(self):
-        global qr, qrSource, product, idProduct, cold, productPrice, payment_check
+        global qr, qrSource, product, idProduct, cold, productPrice, payment_check,logger
         while 1:
             # time.sleep(1)
             print("jalan thread")
+            logger.log_activity(f"mesin Meminta Barcode QRIS dengan idProduct {idProduct}")
             try:
                 qrSource = self.create_transaction(
                     machine_code=MACHINE_CODE,
@@ -1012,6 +1084,7 @@ class ScreenQRPayment(MDScreen):
                 # self.screen_manager.current = 'screen_qr_payment'
                 self.n_payment_check = 0
                 payment_check = Clock.schedule_interval(self.payment_check, 1)
+                logger.log_activity(f"mesin berhasil meminta QRIS dengan IDPRODUCT {idProduct}")
                 # Clock.schedule_interval(self.regular_check, 10)
                 Clock.schedule_once(self.regular_check, 0.5)
                 break
@@ -1019,6 +1092,8 @@ class ScreenQRPayment(MDScreen):
                     
             except Exception as e:
                 print(e)
+                logger.log_activity(f"mesin GAGAL meminta Barcode QRIS IDProduct {idProduct} dengan error {e}")
+                
                 print("error masuk")
                 toast("please try again")
                 try:
@@ -1026,11 +1101,15 @@ class ScreenQRPayment(MDScreen):
                 except:
                     pass
             if self.qrcodeCancel == True:
+                logger.log_activity(f"User Menekan tombol cancel")
+                
                 break
 
     def create_transaction(self, method, machine_code, product_id, product_size, qty, price, product_type, phone='-'):
+        global logger
         try :
             print(SERVER + 'machine_transactions')
+            logger.log_activity(f"Mesin mengirim update status transaksi QRIS dengan product ID{product_id}")
             
             r = requests.post(SERVER + 'machine_transactions', json={
                 "payment_method": method,
@@ -1049,9 +1128,11 @@ class ScreenQRPayment(MDScreen):
             # print(r.json()['data'])
             self.transaction_id = r.json()['data']['id']
             print("transaction id : ", self.transaction_id)
+            logger.log_activity(f"Mesin Berhasil update status transaksi QRIS dengan product ID{product_id}")
             return r.json()['data']['payment_response_parameter']['qr_string'] if (method == 'qris') else r.json()['data']['payment_response_parameter']['actions'][0]['url']
         except Exception as e:
             print(e)
+            logger.log_activity(f"Mesin GAGAL update status transaksi QRIS dengan product ID{product_id} dengan error {e}")
             toast("payment error")
 
 class ScreenInfo(MDScreen):
@@ -1091,7 +1172,9 @@ class ScreenMaintenance(MDScreen):
         # Clock.schedule_interval(self.regular_check, .1)
 
     def on_enter(self):
-        global positionScreen
+        global positionScreen ,logger
+        logger.log_activity(f"Mesin masuk SCreen Maintenance")
+            
         positionScreen = 0
         Clock.schedule_interval(self.regular_check, .1)
         # Clock.schedule_once(self.text_refocus, 0.5)
